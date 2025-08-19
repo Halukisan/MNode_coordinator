@@ -1,0 +1,71 @@
+version: '3'
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - ./zookeeper-data:/var/lib/zookeeper/data
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    volumes:
+      - ./kafka-data:/var/lib/kafka/data
+
+  etcd:
+    image: docker.io/bitnami/etcd:3.5.11
+    container_name: etcd-for-kafka
+    hostname: etcd-for-kafka
+    networks:
+      default:
+        aliases:
+          - etcd-host
+    ports:
+      - "2379:2379"  # Client port (for applications like Kafka)
+      - "2380:2380"  # Peer port (for etcd cluster communication)
+    environment:
+      ETCD_NAME: etcd1
+      ETCD_DATA_DIR: /bitnami/etcd/data
+      ETCD_LISTEN_CLIENT_URLS: "http://0.0.0.0:2379"
+      ETCD_ADVERTISE_CLIENT_URLS: "http://etcd-for-kafka:2379"
+
+      # Peer communication settings (critical for cluster formation)
+      ETCD_LISTEN_PEER_URLS: "http://0.0.0.0:2380"
+      ETCD_INITIAL_ADVERTISE_PEER_URLS: "http://etcd-for-kafka:2380"
+
+      # Cluster settings
+      ETCD_INITIAL_CLUSTER: "etcd1=http://etcd-for-kafka:2380"
+      ETCD_INITIAL_CLUSTER_TOKEN: "etcd-cluster"
+      ETCD_INITIAL_CLUSTER_STATE: "new"
+
+      # Authentication(force!)
+      ETCD_ROOT_PASSWORD: "milvus@123"
+      ETCD_ALLOW_NONE_AUTHENTICATION: "no"
+
+    volumes:
+      - ./etcd-data:/bitnami/etcd/data
+
+    healthcheck:
+      test: [ "CMD", "etcdctl", "--user", "root:milvus@123", "endpoint", "health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
