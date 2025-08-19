@@ -2,10 +2,14 @@ import com.milvus.common.EtcdClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * 测试服务
+ * 节点向etcd中注册，
+ * 节点在etcd中的查询
+ */
 public class EtcdDemo {
     private static final Logger logger = LoggerFactory.getLogger(EtcdClient.class);
 
