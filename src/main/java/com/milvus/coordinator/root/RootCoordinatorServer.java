@@ -46,15 +46,19 @@ public class RootCoordinatorServer {
     public void start() {
         try {
             // 尝试成为Leader
+            logger.info("Attempting to become leader");
             electLeader();
             
             // 启动心跳检测
+            logger.info("Starting heartbeat");
             startHeartbeat();
             
             // 启动服务发现
+            logger.info("Starting service discovery");
             startServiceDiscovery();
             
             // 启动元数据清理
+            logger.info("Starting metadata cleanup");
             startMetadataCleanup();
             
             logger.info("RootCoordinator started successfully");
@@ -130,7 +134,10 @@ public class RootCoordinatorServer {
                                     return true;
                                 });
                     } else {
-                        logger.info("Current leader: {}", currentLeader);
+                        if (currentLeader!=null){
+                            logger.info("Current leader: {}", currentLeader);
+                            isLeader = true;
+                        }
                         return java.util.concurrent.CompletableFuture.completedFuture(false);
                     }
                 })
@@ -146,9 +153,11 @@ public class RootCoordinatorServer {
     private void startHeartbeat() {
         scheduler.scheduleAtFixedRate(() -> {
             try {
+                logger.debug("isLeader---->{}",isLeader);
                 if (isLeader) {
                     String heartbeatKey = "/milvus/heartbeat/root-coordinator/" + nodeId;
                     etcdClient.put(heartbeatKey, String.valueOf(System.currentTimeMillis()));
+                    logger.info("Heartbeat sent heartbeatKey: {}", heartbeatKey);
                 }
             } catch (Exception e) {
                 logger.error("Heartbeat failed", e);

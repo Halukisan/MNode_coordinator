@@ -11,7 +11,6 @@ import java.util.Map;
 
 /**
  * Etcd 管理器
- * 提供高级的元数据管理功能
  */
 public class EtcdManager {
     private static final Logger logger = LoggerFactory.getLogger(EtcdManager.class);
@@ -46,6 +45,7 @@ public class EtcdManager {
             String value = objectMapper.writeValueAsString(metadata);
             return etcdClient.put(key, value)
                     .thenApply(response -> {
+                        //先放缓存
                         metadataCache.put(key, metadata);
                         logger.info("Collection metadata stored: {}", collectionId);
                         return null;
@@ -201,6 +201,21 @@ public class EtcdManager {
                     });
         } catch (Exception e) {
             logger.error("Failed to store index metadata: {}", indexId, e);
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+
+    /**
+     * 获取索引元数据
+     * @param indexId
+     * @return
+     */
+    public CompletableFuture<String> getIndexMetadata(String indexId) {
+        String key = INDEX_PREFIX + indexId;
+        try{
+            return etcdClient.get(key);
+        }catch (Exception e){
+            logger.error("Failed to get index metadata: {}", indexId, e);
             return CompletableFuture.failedFuture(e);
         }
     }

@@ -48,12 +48,15 @@ public class DataCoordinatorServer {
     public void start() {
         try {
             // 启动Segment监控
+            logger.info("Starting segment monitoring");
             startSegmentMonitoring();
             
             // 启动Flush调度
+            logger.info("Starting flush scheduler");
             startFlushScheduler();
             
             // 启动节点健康检查
+            logger.info("Starting node health check");
             startNodeHealthCheck();
             
             logger.info("DataCoordinator started successfully");

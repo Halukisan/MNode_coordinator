@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.*;
 public class DataNodeServerTest {
     
     private DataNodeServer dataNode;
-    private static final String KAFKA_SERVERS = "localhost:9092";
+    private static final String KAFKA_SERVERS = "localhost:29092";
     private static final String ETCD_ENDPOINTS = "http://localhost:2379";
     
     @BeforeEach

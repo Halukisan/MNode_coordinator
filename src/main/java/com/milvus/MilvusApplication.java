@@ -18,7 +18,7 @@ public class MilvusApplication {
         
         // 配置参数
         String etcdEndpoints = "http://localhost:2379";
-        String kafkaServers = "localhost:9092";
+        String kafkaServers = "localhost:29092";
         
         try {
             // 启动Root Coordinator

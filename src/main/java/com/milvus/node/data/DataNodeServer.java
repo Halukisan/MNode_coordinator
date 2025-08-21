@@ -40,8 +40,11 @@ public class DataNodeServer {
     private final long flushInterval = 30000; // 30秒
     
     // Kafka消费者
-    private KafkaConsumer<String, String> insertLogConsumer;
-    private KafkaConsumer<String, String> deleteLogConsumer;
+    private volatile KafkaConsumer<String, String> insertLogConsumer;
+    private volatile KafkaConsumer<String, String> deleteLogConsumer;
+    
+    // 消费者线程控制
+    private volatile boolean consumersRunning = false;
     
     public DataNodeServer(String nodeId, String address, int port, 
                          String kafkaServers, String etcdEndpoints) {
@@ -105,6 +108,8 @@ public class DataNodeServer {
      * 启动Kafka消费者
      */
     private void startKafkaConsumers() {
+        consumersRunning = true;
+        
         // 启动插入日志消费者
         insertLogConsumer = kafkaManager.createDataNodeConsumer(nodeId + "-insert");
         insertLogConsumer.subscribe(Collections.singletonList("milvus-insert-log"));
@@ -112,22 +117,27 @@ public class DataNodeServer {
         scheduler.submit(() -> {
             logger.info("Insert log consumer started");
             
-            while (!Thread.currentThread().isInterrupted()) {
+            while (consumersRunning && !Thread.currentThread().isInterrupted()) {
                 try {
-                    var records = insertLogConsumer.poll(Duration.ofMillis(1000));
-                    
-                    for (ConsumerRecord<String, String> record : records) {
-                        processInsertLog(record);
-                    }
-                    
-                    if (!records.isEmpty()) {
-                        insertLogConsumer.commitSync();
+                    if (insertLogConsumer != null) {
+                        var records = insertLogConsumer.poll(Duration.ofMillis(1000));
+                        
+                        for (ConsumerRecord<String, String> record : records) {
+                            processInsertLog(record);
+                        }
+                        
+                        if (!records.isEmpty()) {
+                            insertLogConsumer.commitSync();
+                        }
                     }
                     
                 } catch (Exception e) {
-                    logger.error("Error processing insert log", e);
+                    if (consumersRunning) {
+                        logger.error("Error processing insert log", e);
+                    }
                 }
             }
+            logger.info("Insert log consumer stopped");
         });
         
         // 启动删除日志消费者
@@ -137,22 +147,27 @@ public class DataNodeServer {
         scheduler.submit(() -> {
             logger.info("Delete log consumer started");
             
-            while (!Thread.currentThread().isInterrupted()) {
+            while (consumersRunning && !Thread.currentThread().isInterrupted()) {
                 try {
-                    var records = deleteLogConsumer.poll(Duration.ofMillis(1000));
-                    
-                    for (ConsumerRecord<String, String> record : records) {
-                        processDeleteLog(record);
-                    }
-                    
-                    if (!records.isEmpty()) {
-                        deleteLogConsumer.commitSync();
+                    if (deleteLogConsumer != null) {
+                        var records = deleteLogConsumer.poll(Duration.ofMillis(1000));
+                        
+                        for (ConsumerRecord<String, String> record : records) {
+                            processDeleteLog(record);
+                        }
+                        
+                        if (!records.isEmpty()) {
+                            deleteLogConsumer.commitSync();
+                        }
                     }
                     
                 } catch (Exception e) {
-                    logger.error("Error processing delete log", e);
+                    if (consumersRunning) {
+                        logger.error("Error processing delete log", e);
+                    }
                 }
             }
+            logger.info("Delete log consumer stopped");
         });
     }
     
@@ -361,27 +376,64 @@ public class DataNodeServer {
      */
     public void shutdown() {
         try {
-            // 关闭Kafka消费者
-            if (insertLogConsumer != null) {
-                insertLogConsumer.close();
-            }
-            if (deleteLogConsumer != null) {
-                deleteLogConsumer.close();
+            logger.info("Starting DataNode shutdown...");
+            
+            // 首先停止消费者循环
+            consumersRunning = false;
+            
+            // 等待消费者线程停止
+            Thread.sleep(2000);
+            
+            // 关闭调度器，中断所有正在运行的任务
+            scheduler.shutdown();
+            if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                logger.warn("Scheduler did not terminate gracefully, forcing shutdown");
+                scheduler.shutdownNow();
+                // 等待强制关闭完成
+                if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                    logger.error("Scheduler did not terminate after forced shutdown");
+                }
             }
             
-            // 关闭调度器
-            scheduler.shutdown();
-            if (!scheduler.awaitTermination(10, TimeUnit.SECONDS)) {
-                scheduler.shutdownNow();
+            // 现在安全地关闭Kafka消费者
+            try {
+                if (insertLogConsumer != null) {
+                    insertLogConsumer.close(Duration.ofSeconds(5));
+                    logger.info("Insert log consumer closed");
+                }
+            } catch (Exception e) {
+                logger.warn("Error closing insert log consumer", e);
+            }
+            
+            try {
+                if (deleteLogConsumer != null) {
+                    deleteLogConsumer.close(Duration.ofSeconds(5));
+                    logger.info("Delete log consumer closed");
+                }
+            } catch (Exception e) {
+                logger.warn("Error closing delete log consumer", e);
             }
             
             // 关闭其他组件
-            flushManager.shutdown();
-            kafkaManager.shutdown();
-            etcdManager.close();
+            try {
+                flushManager.shutdown();
+            } catch (Exception e) {
+                logger.warn("Error shutting down flush manager", e);
+            }
             
-            // 注销节点
-            etcdManager.unregisterNode("data", nodeId);
+            try {
+                kafkaManager.shutdown();
+            } catch (Exception e) {
+                logger.warn("Error shutting down kafka manager", e);
+            }
+            
+            try {
+                // 注销节点
+                etcdManager.unregisterNode("data", nodeId);
+                etcdManager.close();
+            } catch (Exception e) {
+                logger.warn("Error closing etcd manager", e);
+            }
             
             logger.info("DataNode shutdown completed");
             
